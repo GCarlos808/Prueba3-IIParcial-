@@ -97,6 +97,12 @@ public class EmpleadoManager {
         }
     }
     
+    private RandomAccessFile billsFileFor(int code) throws IOException {
+        String dirPadre = employeeFolder(code);
+        String path = dirPadre + "/recibos.emp";
+        return new RandomAccessFile(path, "rw");
+    }
+    
     private void createEmployeeFolder(int code) throws IOException {
         File edir = new File(employeeFolder(code));
         edir.mkdir();
@@ -141,11 +147,120 @@ public class EmpleadoManager {
         if (isEmployeeActive(code)) {
             String name = remps.readUTF();
             remps.skipBytes(16);
-            
             remps.writeLong(new Date().getTime());
             System.out.println("Despidiendo a " +name);
             return true;
         }
         return false;
+    }
+    
+    public void addSaleToEmployee(int code, double monto) throws IOException {
+       
+        if (!isEmployeeActive(code)) {
+            System.out.println("Empleado no encontrado o no está activo.");
+            return;
+        }
+        
+        int mesActual = Calendar.getInstance().get(Calendar.MONTH);
+        long posicion = (long) mesActual * 9;
+        
+        RandomAccessFile rventas = salesFileFor(code);
+        rventas.seek(posicion);
+        double montoActual = rventas.readDouble();
+        rventas.seek(posicion);
+        rventas.writeDouble(montoActual + monto);
+
+        rventas.close();
+        System.out.println("Venta de Lps. " + monto + " registrada al empleado " + code);
+    }
+    
+    public boolean isEmployeePayed(int code) throws IOException {
+        RandomAccessFile rventas = salesFileFor(code);
+
+        int mesActual = Calendar.getInstance().get(Calendar.MONTH);
+
+        long posicion = (long) mesActual * 9 + 8;
+
+        rventas.seek(posicion);
+        boolean pagado = rventas.readBoolean();
+        rventas.close();
+
+        return pagado;
+    }
+    
+    public void payEmployee(int code) throws IOException {
+        
+        if (!isEmployeeActive(code)) {
+            System.out.println("No se pudo pagar (empleado no activo).");
+            return;
+        }
+        
+        if (isEmployeePayed(code)) {
+            System.out.println("No se pudo pagar (ya fue pagado este mes).");
+            return;
+        }
+        
+        String name = remps.readUTF();
+        double salarioBase = remps.readDouble();
+        
+        Calendar cal = Calendar.getInstance();
+        int yearActual = cal.get(Calendar.YEAR);
+        int mesActual  = cal.get(Calendar.MONTH);
+        
+        RandomAccessFile rventas = salesFileFor(code);
+        long posVentas = (long) mesActual * 9;
+        rventas.seek(posVentas);
+        double ventas = rventas.readDouble();
+        double sueldo = salarioBase + (ventas * 0.10);
+        double deduccion = sueldo * 0.035;
+        double total = sueldo - deduccion;
+        
+        RandomAccessFile rrecibos = billsFileFor(code);
+        
+        rrecibos.seek(rrecibos.length());
+        rrecibos.writeLong(new Date().getTime());
+        rrecibos.writeDouble(sueldo);
+        rrecibos.writeDouble(deduccion);
+        rrecibos.writeInt(yearActual);
+        rrecibos.writeInt(mesActual);
+        rrecibos.close();
+        rventas.seek(posVentas + 8);
+        rventas.writeBoolean(true);
+        rventas.close();
+
+        System.out.printf("Empleado %s se le pago Lps. %.2f%n", name, total);
+    }
+    
+    public void printEmployee(int code) throws IOException {
+
+        if (!isEmployeeActive(code)) {
+            System.out.println("Empleado con cOdigo " + code + " no encontrado o no activo.");
+            return;
+        }
+        
+        String name = remps.readUTF();
+        double salario = remps.readDouble();
+        Date   fechaContr = new Date(remps.readLong());
+        System.out.println("Codigo: " + code + "  Nombre: " + name + "  Salario: " + salario + "  Fecha de contratacion: " + fechaContr);
+        
+        RandomAccessFile rventas = salesFileFor(code);
+        rventas.seek(0);
+        
+        double totalVentas = 0;
+        
+        for (int mes = 0; mes < 12; mes++) {
+            double montoMes = rventas.readDouble();
+            rventas.readBoolean();
+            System.out.println("Mes " + (mes + 1) + " : " + montoMes);
+            totalVentas += montoMes;
+        }
+        
+        rventas.close();
+        System.out.println("Total de ventas del año: " + totalVentas);
+        RandomAccessFile rrecibos = billsFileFor(code);
+        int totalRecibos = (int) (rrecibos.length() / 32);
+        rrecibos.close();
+        
+        System.out.println("Total de pagos realizados: " + totalRecibos);
     }
 }
